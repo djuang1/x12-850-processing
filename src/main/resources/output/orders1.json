@@ -1,0 +1,9 @@
+[
+  {
+    "OrderId": "001",
+    "Amount": 300000,
+    "Quantity": 2000,
+    "UnitPrice": 150,
+    "Name": "BOOKING ORDER"
+  }
+]

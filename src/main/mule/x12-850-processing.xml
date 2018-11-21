@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:x12="http://www.mulesoft.org/schema/mule/x12"
+	xmlns:file="http://www.mulesoft.org/schema/mule/file"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/x12 http://www.mulesoft.org/schema/mule/x12/current/mule-x12.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<x12:config name="X12_EDI_Config" doc:name="X12 EDI Config" doc:id="66386f2b-f27c-45c4-a9a5-8727df6e7260" interchangeIdQualifierSelf="ZZ" interchangeIdSelf="RECEIVER" groupIdSelf="RECEIVER" interchangeIdQualifierPartner="ZZ" interchangeIdPartner="SENDER" groupIdPartner="SENDER">
+		<x12:schemas >
+			<x12:schema value="${file.base}/src/main/resources/schemas/850.esl" />
+			<x12:schema value="${file.base}/src/main/resources/schemas/855.esl" />
+		</x12:schemas>
+	</x12:config>
+	<configuration-properties doc:name="Configuration properties" doc:id="8bf2c8ab-c2f8-42f6-b810-bb02386d06c0" file="mule-properties.yaml" />
+	<flow name="x12-850-processingFlow" doc:id="7e5b3aeb-97c1-4245-b0fe-d9dfe360fb81" >
+		<file:listener doc:name="On New or Updated File" doc:id="d1e9d39a-4aba-4633-9fc6-0f6cb3dd61cd" directory="${file.base}/src/main/resources/input" moveToDirectory="${file.base}/src/main/resources/processed">
+			<scheduling-strategy >
+				<fixed-frequency frequency="30" timeUnit="SECONDS" />
+			</scheduling-strategy>
+		</file:listener>
+		<x12:read doc:name="Read" doc:id="788ef111-36e0-4a87-9f8e-2f5f2fd260a6" config-ref="X12_EDI_Config"/>
+		<flow-ref doc:name="ProcessOrders" doc:id="380b5d7e-562e-4d46-9dd7-073c971703d4" name="ProcessOrders" targetValue="#[payload]" target="processed"/>
+		<flow-ref doc:name="SendAcks" doc:id="3a1d8609-8695-4cc0-8f08-555db3ed1dec" name="SendAcks" target="acks" targetValue="#[payload]"/>
+	</flow>
+	<flow name="ProcessOrders" doc:id="690af32f-2d27-4948-b6d3-2ea913356d05" >
+		<ee:transform doc:name="Transform Message" doc:id="db33f46d-6ea3-459a-adf8-f92a6d9684fb" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+payload.TransactionSets.v005010."850"]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<foreach doc:name="For Each" doc:id="33902c77-3c57-4ddf-98d4-26745fed53e2" >
+			<ee:transform doc:name="Transform Message" doc:id="5cfbac6d-cbd8-43d4-bc61-e0059eb0b6e2" >
+				<ee:message >
+					<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload.Detail."0100_PO1_Loop" map {
+	OrderId: $.'0100_PO1'.PO101,
+	Amount: $.'0100_PO1'.PO104 * $.'0100_PO1'.PO102,
+	Quantity: $."0100_PO1".PO102,
+	UnitPrice: $."0100_PO1".PO104,
+	Name: payload.Heading."3100_N1_Loop"[0]."3100_N1".N102
+}]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+			<file:write doc:name="Write" doc:id="23cce440-9a13-417e-948b-982659e5214f" path="#[p('file.base') ++ '/src/main/resources/output/orders' ++ vars.counter ++ '.json']"/>
+		</foreach>
+	</flow>
+	<flow name="SendAcks" doc:id="4163a782-8358-413d-8270-4573aca42e84" >
+		<ee:transform doc:name="Transform Message" doc:id="e9b26edf-3f85-471e-9f57-9d79086bd42c" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+{
+	TransactionSets: {
+		v005010: {
+			'997' : payload.FunctionalAcksGenerated
+		}
+	}
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<x12:write doc:name="Write" doc:id="07d2345e-294a-469d-8408-ec02afd18a98" />
+		<file:write doc:name="Write" doc:id="647cc8be-b28e-40b7-a850-425ba2e604e0" path="/Users/djuang/Workspaces/studio-seven-three/x12-850-processing/src/main/resources/output/ack.edi"/>
+	</flow>
+</mule>
